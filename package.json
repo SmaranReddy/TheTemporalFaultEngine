@@ -1,0 +1,31 @@
+{
+  "name": "temporal-fault-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc",
+    "start": "node dist/main.js",
+    "migrate:generate": "drizzle-kit generate",
+    "migrate:run": "drizzle-kit migrate",
+    "migrate:check": "drizzle-kit check"
+  },
+  "dependencies": {
+
+    "dotenv": "^16.4.7",
+    "drizzle-orm": "^0.38.3",
+    "ioredis": "^5.5.0",
+    "pg": "^8.13.1",
+    "pino": "^9.6.0",
+    "pino-pretty": "^13.0.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/pg": "^8.11.11",
+    "drizzle-kit": "^0.30.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

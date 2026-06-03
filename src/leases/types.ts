@@ -8,4 +8,5 @@ export interface ClaimResult {
   scheduledAt: Date;
   leaseExpiresAt: Date;
   attemptCount: number;
+  idempotencyKey: string | null;
 }

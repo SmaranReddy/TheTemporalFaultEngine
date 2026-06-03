@@ -76,6 +76,7 @@ export async function acquire(
     scheduledAt: row.scheduledAt,
     leaseExpiresAt: row.leaseExpiresAt!,
     attemptCount: row.attemptCount,
+    idempotencyKey: row.idempotencyKey,
   };
 }
 

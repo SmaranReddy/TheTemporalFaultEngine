@@ -1,6 +1,7 @@
 import { env } from "../config/env.js";
 import { redis } from "../redis/index.js";
 import { acquire } from "../leases/index.js";
+import { executeEvent, simulatedHandler } from "../worker/index.js";
 import { logger } from "../logger/index.js";
 
 const SCHEDULER_KEY = "scheduler";
@@ -74,16 +75,37 @@ export function createScheduler(): SchedulerController {
       for (const eventId of due) {
         const claim = await acquire(eventId, env.WORKER_ID);
 
-        if (claim) {
+        if (!claim) continue;
+
+        logger.info(
+          {
+            eventId: claim.eventId,
+            scheduledAt: claim.scheduledAt.toISOString(),
+            leaseExpiresAt: claim.leaseExpiresAt.toISOString(),
+          },
+          "Event claimed — dispatching to executor"
+        );
+
+        // Fire-and-forget execution. The executor manages its own
+        // heartbeat, timeout, and completion lifecycle.
+        // We do NOT await this — the scheduler tick must continue
+        // to find and claim the next batch of events.
+        executeEvent(claim, simulatedHandler).then((result) => {
           logger.info(
             {
               eventId: claim.eventId,
-              scheduledAt: claim.scheduledAt.toISOString(),
-              leaseExpiresAt: claim.leaseExpiresAt.toISOString(),
+              result: result.status,
+              ...(result.status === "FAILED" && { error: result.error }),
+              ...(result.status === "ABORTED" && { reason: result.reason }),
             },
-            "Event claimed from scheduler"
+            "Event execution finished"
           );
-        }
+        }, (err) => {
+          logger.error(
+            { eventId: claim.eventId, err },
+            "Event execution threw unexpectedly"
+          );
+        });
       }
     } catch (err) {
       logger.error({ err }, "Scheduler tick failed");

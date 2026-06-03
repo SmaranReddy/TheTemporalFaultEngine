@@ -1,10 +1,12 @@
 import { env } from "./config/env.js";
 import { logger } from "./logger/index.js";
 import { healthCheck as dbHealthCheck, closeDb } from "./db/index.js";
+import { runMigrations } from "./db/migrate.js";
 import { healthCheck as redisHealthCheck, closeRedis } from "./redis/index.js";
 import { recoverOrphanedLeases } from "./recovery/index.js";
 import { createReaper } from "./reaper/index.js";
 import { createScheduler } from "./scheduler/index.js";
+import { createApiServer } from "./api/server.js";
 
 async function main(): Promise<void> {
   logger.info(
@@ -27,7 +29,10 @@ async function main(): Promise<void> {
   }
   logger.info("Redis healthy");
 
-  // ─── Phase 2: Crash recovery ────────────────────────────────────
+  // ─── Phase 2: Database migrations ───────────────────────────────
+  await runMigrations();
+
+  // ─── Phase 3: Crash recovery ────────────────────────────────────
   // Runs ONCE before any subsystem starts.
   // Reclaims any events this worker claimed before a previous crash.
   const { orphanedLeases } = await recoverOrphanedLeases();
@@ -35,12 +40,14 @@ async function main(): Promise<void> {
     logger.info({ count: orphanedLeases }, "Crash recovery reclaimed leases");
   }
 
-  // ─── Phase 3: Start subsystems ──────────────────────────────────
+  // ─── Phase 4: Start subsystems ──────────────────────────────────
   const reaper = createReaper();
   const scheduler = createScheduler();
+  const apiServer = createApiServer();
 
   reaper.start();
   scheduler.start();
+  await apiServer.start();
 
   logger.info("Temporal Fault Engine ready");
 
@@ -49,6 +56,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, "Shutting down");
 
     // Stop subsystems in reverse order
+    await apiServer.stop();
     scheduler.stop();
     reaper.stop();
 

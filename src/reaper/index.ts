@@ -4,6 +4,7 @@ import { and, inArray, lt, isNotNull, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { logger } from "../logger/index.js";
 import { addToSchedule } from "../scheduler/index.js";
+import { eventStatusChanged } from "../api/realtime.js";
 
 export interface ReaperController {
   start(): void;
@@ -70,6 +71,7 @@ export function createReaper(): ReaperController {
           { eventId: row.id },
           "Lease reaped — event returned to PENDING"
         );
+        eventStatusChanged(row.id, "PENDING");
         await addToSchedule(row.id, row.scheduledAt);
       }
 

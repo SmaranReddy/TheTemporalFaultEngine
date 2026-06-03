@@ -1,0 +1,8 @@
+.git
+.docker-tmp
+.npm-cache
+dist
+node_modules
+npm-debug.log
+Dockerfile
+docker-compose.yml

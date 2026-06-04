@@ -33,6 +33,8 @@ services:
       DATABASE_HOST: postgres
       REDIS_HOST: redis
       WORKER_ID: "worker-${WORKER_ID:-1}"
+      SCHEDULER_POLL_INTERVAL_MS: "50"
+      SIMULATED_WORK_DELAY_MS: "0"
     depends_on:
       postgres:
         condition: service_healthy

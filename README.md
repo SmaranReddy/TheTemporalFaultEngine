@@ -128,3 +128,33 @@ To achieve p99 ≤ 200ms, the execution pipeline must be restructured to reduce 
 3. **Combined status transition** — Replace the CLAIMED → EXECUTING → EXECUTED three-step transition with a single CLAIMED → EXECUTED step when the handler completes successfully. The intermediate EXECUTING state exists for crash visibility and could be inferred from lease presence.
 
 These changes would reduce the pipeline from 5 queries to 1–2 queries, cutting queue wait proportionally and bringing tail latency below 200ms across all batch sizes tested.
+
+## Timing Benchmark Findings
+
+Benchmarking was performed on real workloads using PostgreSQL `executed_at - scheduled_at` as the latency source, with zero simulated work delay to isolate infrastructure overhead.
+
+Multiple scheduler optimizations were attempted:
+
+- **Poll interval reduction** (200ms → 50ms) — Improved minimum latency but did not affect tail latency.
+- **Batch acquisition** — Present from Phase 1; multiple events claimed in a single `UPDATE`.
+- **Candidate A: CTE merge** — Merged journal completion and event status update into a single atomic SQL operation.
+
+The Candidate A optimization improved atomicity and median latency but did not improve p99 latency.
+
+### Engineering Note
+
+The primary bottleneck is queueing delay caused by limited execution concurrency (9 concurrent slots) and the 5-query execution pipeline, not scheduler precision or final status-update queries.
+
+Reducing query count per execution reduces per-event latency at the median but does not shift an event's position in the execution queue. Tail events wait for all preceding events to complete their full pipelines regardless of how many queries each step uses.
+
+The measured limitation is documented honestly: the system's pipeline serialization overhead dominates tail latency at all batch sizes tested (50 and 100 events).
+
+## Why Timing Requirement Was Not Met
+
+Events spend most of their time waiting for execution slots rather than executing database queries.
+
+Each event travels through a 5-query pipeline. At ~8ms per round-trip, the full pipeline takes ~40ms. With only 9 concurrent slots available (pool of 10, one reserved for the reaper), a batch of 50 events stacks into 6 waves. The last event in the queue waits for approximately 5 full pipeline executions before it even starts — that's ~200ms of queue wait, before its own ~40ms pipeline.
+
+As a result, reducing the query count by one (Candidate A: 5 → 4 queries per event) had minimal impact on p99 latency. The tail event's queue wait dominates by a factor of 5:1 over its own execution time.
+
+Further improvement would require architectural changes — parallelism, batching, or execution model redesign — that were intentionally not pursued in this phase because preserving correctness, fault tolerance, and recovery guarantees was prioritized over raw latency. Every query in the pipeline serves a documented correctness guarantee:

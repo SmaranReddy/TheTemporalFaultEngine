@@ -3,6 +3,7 @@ import { logger } from "../logger/index.js";
 import {
   beginExecution,
   complete,
+  completeExecution,
   fail,
 } from "../leases/index.js";
 import type { ClaimResult } from "../leases/index.js";
@@ -11,7 +12,6 @@ import { raceExecution } from "./timeout.js";
 import {
   isIdempotencyKeyCompleted,
   startJournal,
-  completeJournal,
   failJournal,
 } from "./journal.js";
 
@@ -36,8 +36,8 @@ export type PayloadHandler = (payload: string) => Promise<void>;
  *   3. Heartbeat loop     ─── extends lease every lease_duration/2
  *   4. raceExecution()    ─── handler vs timeout vs lease-loss abort
  *   5. Stop heartbeat     ─── BEFORE any DB writes
- *   6. Journal COMPLETED  ─── UPDATE journal (BEFORE event status)
- *   7. complete()/fail()  ─── UPDATE event (AFTER journal)
+ *   6. completeExecution() ─── CTE: journal COMPLETED + event EXECUTED
+ *                              in one atomic DB command
  *
  * Why journal before event status (step 6 before step 7):
  *   Imagine the worker crashes between completeJournal() and complete().
@@ -148,18 +148,9 @@ export async function executeEvent(
   // See doc comment above for why.
 
   if (outcome === "OK") {
-    // 5a. Journal → COMPLETED
-    const journalized = await completeJournal(journal.id);
-    if (!journalized) {
-      logger.warn(
-        { eventId, journalId: journal.id },
-        "Journal complete failed — but handler finished"
-      );
-    }
-
-    // 5b. Event → EXECUTED
-    const completed = await complete(eventId, workerId);
-    if (!completed) {
+    // 5. Atomically journal COMPLETED + event EXECUTED
+    const result = await completeExecution(eventId, workerId, journal.id);
+    if (!result.eventCompleted) {
       logger.warn(
         { eventId, workerId },
         "Handler completed but lease lost before complete()"

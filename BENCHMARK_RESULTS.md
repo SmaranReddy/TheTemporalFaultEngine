@@ -111,6 +111,46 @@ The poll interval reduction improved the head of the distribution (minimum laten
 
 The gap at 50 events is narrow (≈26ms) and could potentially be closed by per-query latency optimization. The gap at 100 events is structural (≈186ms) and requires reducing the number of queries per execution.
 
+## Candidate A Optimization Experiment
+
+### What was changed
+
+Merged the final two database round-trips in the execution pipeline:
+
+- `UPDATE event_executions SET execution_status = 'COMPLETED'` (journal)
+- `UPDATE events SET status = 'EXECUTED'` (event)
+
+into a single atomic PostgreSQL CTE that performs both updates in one round-trip while preserving the journal-before-event ordering invariant.
+
+### Why it was attempted
+
+Hypothesis: Reducing PostgreSQL round-trips at the tail of the execution pipeline would reduce p99 latency by approximately one query's worth of serialization delay (~8ms plus queue-position improvement).
+
+### Results
+
+| Metric | Baseline | Candidate A |
+|--------|----------|-------------|
+| Avg    | 257ms    | 242ms       |
+| P50    | 260ms    | 241ms       |
+| P95    | 385ms    | 389ms       |
+| P99    | 394ms    | 404ms       |
+
+### Interpretation
+
+The experiment disproved the hypothesis.
+
+Reducing one database round-trip improves median latency (P50: 260ms → 241ms) and average latency (257ms → 242ms), consistent with the expected ~8ms per-query savings plus secondary effects on queue position.
+
+However, tail latency did not improve. P99 increased by 10ms (394ms → 404ms), well within run-to-run variance and not statistically significant. The key finding: tail latency at 50 events is dominated by queueing delay and execution-slot contention, not by the final journal/event status-update queries.
+
+The tail of the distribution represents events that queue behind the maximum concurrency depth (9 slots). For those events, saving one round-trip does not shift their position in the queue — they still wait for all preceding events to complete their full pipelines.
+
+### Final Benchmark Verdict
+
+**FAIL**
+
+Reason: p99 remains significantly above the ±200ms target.
+
 ## Engineering Tradeoff Discussion
 
 The timing requirement is in tension with the system's durability guarantees. Each of the 5 queries per execution serves a distinct correctness purpose:

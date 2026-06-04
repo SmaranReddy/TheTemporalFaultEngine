@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:17-alpine
+    command: postgres -c fsync=off -c synchronous_commit=off -c full_page_writes=off
     environment:
       POSTGRES_DB: temporal_fault_engine
       POSTGRES_USER: postgres
@@ -33,13 +34,16 @@ services:
       DATABASE_HOST: postgres
       REDIS_HOST: redis
       WORKER_ID: "worker-${WORKER_ID:-1}"
+      SCHEDULER_POLL_INTERVAL_MS: 20
+      SIMULATED_WORK_DELAY_MS: 0
+      DATABASE_POOL_MAX: 100
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     ports:
-      - "3001:3001"
+      - "3001-3005:3001"
     healthcheck:
       test:
         [

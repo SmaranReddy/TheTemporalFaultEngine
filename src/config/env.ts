@@ -1,5 +1,6 @@
 import { z } from "zod";
 import dotenv from "dotenv";
+import os from "node:os";
 
 dotenv.config();
 
@@ -31,7 +32,12 @@ const envSchema = z.object({
   SCHEDULE_RECOVERY_INTERVAL_MS: z.coerce.number().default(5000),
   SCHEDULE_RECOVERY_BATCH_SIZE: z.coerce.number().default(500),
 
-  WORKER_ID: z.string().default("worker-1"),
+  WORKER_ID: z.string().default("worker-1").transform((val) => {
+    if (val === "worker-1") {
+      return `worker-${os.hostname()}`;
+    }
+    return val;
+  }),
   PORT: z.coerce.number().default(3001),
 });
 

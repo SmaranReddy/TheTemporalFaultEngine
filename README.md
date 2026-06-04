@@ -383,4 +383,4 @@ Trigger performance benchmarks, observe processing progress in real-time, and an
 
 ![Benchmark performance Analysis](docs/screenshots/benchmark_results.png)
 
-![Worker Distribution and Activity Metrics](docs/screenshots/metrics_page.png)
+

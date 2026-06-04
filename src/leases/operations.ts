@@ -178,6 +178,85 @@ export async function complete(
 }
 
 /**
+ * ─── completeExecution ───────────────────────────────────────────
+ *
+ * Atomically mark a journal entry as COMPLETED and transition the
+ * event to EXECUTED in a single database round-trip (CTE).
+ *
+ * Replaces the two-round-trip pattern:
+ *   1. completeJournal()   ─── UPDATE event_executions → COMPLETED
+ *   2. complete()          ─── UPDATE events → EXECUTED
+ *
+ * Correctness:
+ *   - Journal-before-event ordering preserved (journal CTE runs first)
+ *   - Atomic: if the DB crashes mid-CTE, neither update takes effect
+ *   - No ambiguity window between journal and event status
+ *   - Same WHERE guards as the individual functions:
+ *       journal: id=$journalId AND execution_status='STARTED'
+ *       event:   id=$eventId AND claimed_by=$workerId
+ *                AND status IN ('CLAIMED','EXECUTING')
+ *
+ * Returns:
+ *   journalCompleted — true if the journal was in STARTED state
+ *   eventCompleted   — true if the worker still owned the lease
+ */
+export async function completeExecution(
+  eventId: string,
+  workerId: string,
+  journalId: string
+): Promise<{ journalCompleted: boolean; eventCompleted: boolean }> {
+  try {
+    const result = await db.execute(sql`
+      WITH journal_update AS (
+        UPDATE event_executions
+        SET execution_status = 'COMPLETED',
+            execution_completed_at = NOW()
+        WHERE id = ${journalId} AND execution_status = 'STARTED'
+        RETURNING id
+      )
+      UPDATE events
+      SET status = 'EXECUTED',
+          executed_at = NOW(),
+          claimed_by = NULL,
+          lease_expires_at = NULL,
+          updated_at = NOW()
+      WHERE id = ${eventId}
+        AND claimed_by = ${workerId}
+        AND status IN ('CLAIMED', 'EXECUTING')
+      RETURNING
+        (SELECT count(*) FROM journal_update)::int AS journal_updated,
+        id AS event_id
+    `);
+
+    if (result.rows.length === 0) {
+      logger.warn(
+        { eventId, workerId },
+        "completeExecution failed — worker no longer owns lease"
+      );
+      return { journalCompleted: false, eventCompleted: false };
+    }
+
+    const row = result.rows[0]!;
+    const journalCompleted = Number(row.journal_updated) > 0;
+
+    if (!journalCompleted) {
+      logger.warn(
+        { eventId, journalId },
+        "Journal complete failed — but handler finished"
+      );
+    }
+
+    logger.info({ eventId, workerId }, "Event completed successfully");
+    eventStatusChanged(eventId, "EXECUTED");
+
+    return { journalCompleted, eventCompleted: true };
+  } catch (err) {
+    logger.error({ eventId, workerId, journalId, err }, "completeExecution threw");
+    return { journalCompleted: false, eventCompleted: false };
+  }
+}
+
+/**
  * ─── fail ────────────────────────────────────────────────────────
  *
  * Transition an event to FAILED and release the lease.

@@ -1,3 +1,14 @@
+## Team
+
+**Team 2**
+
+| Name |
+|--------|
+| Atla Smaran Reddy |
+| Keshvi Agarwal |
+
+This project was collaboratively developed and validated as part of the distributed systems internship assessment.
+
 # Temporal Fault Engine
 
 The Temporal Fault Engine is a self-hosted, distributed, fault-tolerant event scheduling and execution engine built with Node.js, TypeScript, PostgreSQL, and Redis. It provides strong idempotency guarantees, lease-based claim management, and automatic recovery protocols to handle node crashes and service disruptions gracefully.

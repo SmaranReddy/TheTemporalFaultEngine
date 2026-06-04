@@ -357,8 +357,9 @@ export const dashboardHtml = String.raw`<!doctype html>
     }
 
     /* Colored metric themes */
-    .metric-card.total::before { background: var(--accent); }
+    .metric-card.total::before { background: var(--text-muted); }
     .metric-card.pending::before { background: var(--secondary); }
+    .metric-card.claimed::before { background: var(--accent); }
     .metric-card.executing::before { background: var(--warn); }
     .metric-card.executed::before { background: var(--primary); }
     .metric-card.failed::before { background: var(--bad); }
@@ -742,6 +743,10 @@ export const dashboardHtml = String.raw`<!doctype html>
               <span class="metric-label">Pending</span>
               <span id="statPending" class="metric-value">0</span>
             </div>
+            <div class="metric-card claimed">
+              <span class="metric-label">Claimed</span>
+              <span id="statClaimed" class="metric-value">0</span>
+            </div>
             <div class="metric-card executing">
               <span class="metric-label">Executing</span>
               <span id="statExecuting" class="metric-value">0</span>
@@ -793,15 +798,15 @@ export const dashboardHtml = String.raw`<!doctype html>
               <thead>
                 <tr>
                   <th>Event ID</th>
-                  <th>Payload</th>
+                  <th>Status</th>
+                  <th>Worker</th>
                   <th>Scheduled Time</th>
-                  <th>Actual Execution Time</th>
-                  <th>Variance (ms)</th>
-                  <th>Worker Node</th>
+                  <th>Executed Time</th>
+                  <th>Attempts</th>
                 </tr>
               </thead>
               <tbody id="consumEventsTableBody">
-                <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">Loading events grid...</td></tr>
+                <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">Loading events grid...</td></tr>
               </tbody>
             </table>
           </div>
@@ -934,6 +939,7 @@ export const dashboardHtml = String.raw`<!doctype html>
       // Set values in Producer metrics
       $("statTotal").textContent = total;
       $("statPending").textContent = counts.PENDING;
+      $("statClaimed").textContent = counts.CLAIMED;
       $("statExecuting").textContent = counts.EXECUTING;
       $("statExecuted").textContent = counts.EXECUTED;
       $("statFailed").textContent = counts.FAILED;
@@ -969,11 +975,11 @@ export const dashboardHtml = String.raw`<!doctype html>
           "<button class='copy-btn' onclick='copyToClipboard(\"" + row.id + "\", this)' title='Copy ID'>" +
           "<svg width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><rect x='9' y='9' width='13' height='13' rx='2' ry='2'></rect><path d='M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1'></path></svg>" +
           "</button></div></td>" +
-          "<td><code style='color: #86efac;'>" + escapeHtml(JSON.stringify(row.payload)).slice(0, 40) + "...</code></td>" +
-          "<td>" + formatTime(row.scheduledAt) + "</td>" +
-          "<td>" + (row.executedAt ? "<span style='color: var(--primary); font-weight:500;'>" + formatTime(row.executedAt) + "</span>" : "<span style='color: var(--text-muted);'>-</span>") + "</td>" +
-          "<td>" + (variance !== "-" ? "<span style='font-weight:600; color: " + (variance <= 200 ? "var(--primary)" : "var(--bad)") + ";'>" + variance + " ms</span>" : "<span style='color: var(--text-muted);'>-</span>") + "</td>" +
+          "<td><span class='" + getBadgeClass(row.status) + "'>" + row.status + "</span></td>" +
           "<td>" + (row.claimedBy ? "<span class='worker-pill'><svg width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2'></path><circle cx='12' cy='7' r='4'></circle></svg>" + escapeHtml(row.claimedBy) + "</span>" : "<span style='color: var(--text-muted); font-size:12px;'>-</span>") + "</td>" +
+          "<td>" + formatTime(row.scheduledAt) + "</td>" +
+          "<td>" + (row.executedAt ? "<span style='color: var(--primary); font-weight:500;'>" + formatTime(row.executedAt) + "</span>" + (variance !== "-" ? " <span style='font-size: 11px; color: " + (variance <= 200 ? "var(--primary)" : "var(--bad)") + "'>(" + variance + " ms)</span>" : "") : "<span style='color: var(--text-muted);'>-</span>") + "</td>" +
+          "<td><code>" + row.attemptCount + "</code></td>" +
           "</tr>";
       }).join("");
     }

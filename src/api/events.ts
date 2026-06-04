@@ -280,3 +280,61 @@ function clampNumber(
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.trunc(parsed)));
 }
+
+export async function getBenchmarkMetrics(): Promise<unknown> {
+  const [latencyRow] = await db
+    .select({
+      avg: sql<number | null>`avg(extract(epoch from (${events.executedAt} - ${events.scheduledAt})) * 1000)::float`,
+      p50: sql<number | null>`percentile_cont(0.50) within group (order by extract(epoch from (${events.executedAt} - ${events.scheduledAt})) * 1000)::float`,
+      p95: sql<number | null>`percentile_cont(0.95) within group (order by extract(epoch from (${events.executedAt} - ${events.scheduledAt})) * 1000)::float`,
+      p99: sql<number | null>`percentile_cont(0.99) within group (order by extract(epoch from (${events.executedAt} - ${events.scheduledAt})) * 1000)::float`,
+      max: sql<number | null>`max(extract(epoch from (${events.executedAt} - ${events.scheduledAt})) * 1000)::float`,
+    })
+    .from(events)
+    .where(
+      sql`${events.status} = 'EXECUTED' AND ${events.payload} LIKE '%"benchmark":true%'`
+    );
+
+  const [countsRow] = await db
+    .select({
+      executed: sql<number>`count(*) filter (where ${events.status} = 'EXECUTED')::int`,
+      failed: sql<number>`count(*) filter (where ${events.status} = 'FAILED')::int`,
+    })
+    .from(events)
+    .where(sql`${events.payload} LIKE '%"benchmark":true%'`);
+
+  const [attemptsRow] = await db
+    .select({
+      attempts: sql<number>`count(*)::int`,
+    })
+    .from(eventExecutions)
+    .innerJoin(events, eq(eventExecutions.eventId, events.id))
+    .where(sql`${events.payload} LIKE '%"benchmark":true%'`);
+
+  const workerDistRows = await db
+    .select({
+      worker: eventExecutions.workerId,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(eventExecutions)
+    .innerJoin(events, eq(eventExecutions.eventId, events.id))
+    .where(sql`${events.payload} LIKE '%"benchmark":true%'`)
+    .groupBy(eventExecutions.workerId)
+    .orderBy(sql`count(*) DESC`);
+
+  return {
+    latency: {
+      avg: latencyRow?.avg ? Math.round(latencyRow.avg) : 0,
+      p50: latencyRow?.p50 ? Math.round(latencyRow.p50) : 0,
+      p95: latencyRow?.p95 ? Math.round(latencyRow.p95) : 0,
+      p99: latencyRow?.p99 ? Math.round(latencyRow.p99) : 0,
+      max: latencyRow?.max ? Math.round(latencyRow.max) : 0,
+    },
+    counts: {
+      executed: countsRow?.executed ?? 0,
+      failed: countsRow?.failed ?? 0,
+      attempts: attemptsRow?.attempts ?? 0,
+    },
+    workerDistribution: workerDistRows ?? [],
+  };
+}

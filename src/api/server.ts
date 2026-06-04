@@ -11,6 +11,7 @@ import {
   insertEvent,
   listEvents,
   runBenchmark,
+  getBenchmarkMetrics,
 } from "./events.js";
 import { handleWebSocketUpgrade } from "./realtime.js";
 
@@ -92,6 +93,11 @@ async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
 
     if (req.method === "POST" && url.pathname === "/api/benchmarks/run") {
       sendJson(res, 201, await runBenchmark(await readJson(req)));
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/api/benchmarks/metrics") {
+      sendJson(res, 200, await getBenchmarkMetrics());
       return;
     }
 

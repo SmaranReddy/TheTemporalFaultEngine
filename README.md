@@ -1,11 +1,4 @@
-## Team
-
-**Team 2**
-
-| Name |
-|--------|
-| Atla Smaran Reddy |
-| Keshvi Agarwal |
+## Team 2: Atla Smaran Reddy + Keshvi Agarwal
 
 This project was collaboratively developed and validated as part of the distributed systems internship assessment.
 

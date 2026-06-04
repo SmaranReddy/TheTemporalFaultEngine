@@ -13,6 +13,8 @@ export const redis = new Redis({
     return delay;
   },
   maxRetriesPerRequest: 5,
+  commandTimeout: 2000,
+  enableOfflineQueue: false,
   enableReadyCheck: true,
   lazyConnect: true,
 });
@@ -27,6 +29,9 @@ redis.on("connect", () => {
 
 export async function healthCheck(): Promise<boolean> {
   try {
+    if (redis.status === "wait" || redis.status === "end") {
+      await redis.connect();
+    }
     const result = await redis.ping();
     return result === "PONG";
   } catch {

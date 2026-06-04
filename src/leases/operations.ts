@@ -4,6 +4,7 @@ import { eq, and, inArray, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { logger } from "../logger/index.js";
 import type { ClaimResult } from "./types.js";
+import { eventStatusChanged } from "../api/realtime.js";
 
 /**
  * ─── Lease Expiry Helper ─────────────────────────────────────────
@@ -69,6 +70,7 @@ export async function acquire(
     { eventId, workerId, leaseExpiresAt: row.leaseExpiresAt },
     "Lease acquired"
   );
+  eventStatusChanged(row.id, "CLAIMED");
 
   return {
     eventId: row.id,
@@ -171,6 +173,7 @@ export async function complete(
   }
 
   logger.info({ eventId, workerId }, "Event completed successfully");
+  eventStatusChanged(eventId, "EXECUTED");
   return true;
 }
 
@@ -214,6 +217,7 @@ export async function fail(
   }
 
   logger.info({ eventId, workerId, error }, "Event failed");
+  eventStatusChanged(eventId, "FAILED");
   return true;
 }
 
@@ -258,5 +262,6 @@ export async function beginExecution(
     return false;
   }
 
+  eventStatusChanged(eventId, "EXECUTING");
   return true;
 }

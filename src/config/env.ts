@@ -26,6 +26,10 @@ const envSchema = z.object({
 
   SCHEDULER_POLL_INTERVAL_MS: z.coerce.number().default(1000),
   SCHEDULER_BATCH_SIZE: z.coerce.number().default(100),
+  SCHEDULE_ENQUEUE_RETRY_ATTEMPTS: z.coerce.number().default(3),
+  SCHEDULE_ENQUEUE_RETRY_DELAY_MS: z.coerce.number().default(250),
+  SCHEDULE_RECOVERY_INTERVAL_MS: z.coerce.number().default(5000),
+  SCHEDULE_RECOVERY_BATCH_SIZE: z.coerce.number().default(500),
 
   WORKER_ID: z.string().default("worker-1"),
   PORT: z.coerce.number().default(3001),

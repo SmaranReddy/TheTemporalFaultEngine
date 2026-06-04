@@ -68,9 +68,11 @@ export function createScheduler(): SchedulerController {
 
       if (due.length === 0) return;
 
-      // Remove them from the sorted set atomically
-      // (may fail for individual IDs if another worker got there first)
-      await redis.zremrangebyscore(SCHEDULER_KEY, 0, now);
+      // Remove only the IDs this tick is about to process. Removing the
+      // entire due range would drop due-but-unread IDs when backlog exceeds
+      // the batch size; schedule recovery can heal that, but this keeps the
+      // queue consistent during normal operation.
+      await redis.zrem(SCHEDULER_KEY, ...due);
 
       for (const eventId of due) {
         const claim = await acquire(eventId, env.WORKER_ID);
@@ -143,9 +145,52 @@ export async function addToSchedule(
 }
 
 /**
+ * Add an event to Redis with bounded retries. If Redis remains unavailable,
+ * the DB row stays PENDING and schedule recovery will enqueue it later.
+ */
+export async function addToScheduleWithRetry(
+  eventId: string,
+  scheduledAt: Date
+): Promise<boolean> {
+  const attempts = Math.max(1, env.SCHEDULE_ENQUEUE_RETRY_ATTEMPTS);
+  const retryDelayMs = Math.max(0, env.SCHEDULE_ENQUEUE_RETRY_DELAY_MS);
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      await addToSchedule(eventId, scheduledAt);
+      return true;
+    } catch (err) {
+      logger.warn(
+        { eventId, scheduledAt, attempt, attempts, err },
+        "Redis schedule enqueue failed"
+      );
+
+      if (attempt < attempts && retryDelayMs > 0) {
+        await sleep(retryDelayMs);
+      }
+    }
+  }
+
+  logger.error(
+    { eventId, scheduledAt },
+    "Redis schedule enqueue exhausted retries; recovery will reschedule"
+  );
+  return false;
+}
+
+export async function isInSchedule(eventId: string): Promise<boolean> {
+  const score = await redis.zscore(SCHEDULER_KEY, eventId);
+  return score !== null;
+}
+
+/**
  * Remove an event from the scheduling queue.
  * Called after the reaper reclaims an event (re-add it to schedule).
  */
 export async function removeFromSchedule(eventId: string): Promise<void> {
   await redis.zrem(SCHEDULER_KEY, eventId);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

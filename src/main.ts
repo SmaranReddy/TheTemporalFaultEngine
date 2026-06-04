@@ -3,7 +3,11 @@ import { logger } from "./logger/index.js";
 import { healthCheck as dbHealthCheck, closeDb } from "./db/index.js";
 import { runMigrations } from "./db/migrate.js";
 import { healthCheck as redisHealthCheck, closeRedis } from "./redis/index.js";
-import { recoverOrphanedLeases } from "./recovery/index.js";
+import {
+  createScheduleRecovery,
+  recoverMissingPendingSchedules,
+  recoverOrphanedLeases,
+} from "./recovery/index.js";
 import { createReaper } from "./reaper/index.js";
 import { createScheduler } from "./scheduler/index.js";
 import { createApiServer } from "./api/server.js";
@@ -39,13 +43,16 @@ async function main(): Promise<void> {
   if (orphanedLeases > 0) {
     logger.info({ count: orphanedLeases }, "Crash recovery reclaimed leases");
   }
+  await recoverMissingPendingSchedules();
 
   // ─── Phase 4: Start subsystems ──────────────────────────────────
   const reaper = createReaper();
+  const scheduleRecovery = createScheduleRecovery();
   const scheduler = createScheduler();
   const apiServer = createApiServer();
 
   reaper.start();
+  scheduleRecovery.start();
   scheduler.start();
   await apiServer.start();
 
@@ -58,6 +65,7 @@ async function main(): Promise<void> {
     // Stop subsystems in reverse order
     await apiServer.stop();
     scheduler.stop();
+    scheduleRecovery.stop();
     reaper.stop();
 
     await closeDb();

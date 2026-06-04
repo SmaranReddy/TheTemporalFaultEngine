@@ -4,7 +4,7 @@ import { db, healthCheck as dbHealthCheck } from "../db/index.js";
 import { events, eventExecutions, eventStatus } from "../db/schema.js";
 import type { EventStatus } from "../db/schema.js";
 import { healthCheck as redisHealthCheck } from "../redis/index.js";
-import { addToSchedule } from "../scheduler/index.js";
+import { addToScheduleWithRetry } from "../scheduler/index.js";
 import { broadcast } from "./realtime.js";
 
 const insertEventSchema = z.object({
@@ -55,7 +55,7 @@ export async function insertEvent(input: unknown): Promise<InsertedEvent> {
     throw new Error("Event insert returned no row");
   }
 
-  await addToSchedule(row.id, row.scheduledAt);
+  await addToScheduleWithRetry(row.id, row.scheduledAt);
   broadcast({
     type: "event.created",
     eventId: row.id,
@@ -226,7 +226,9 @@ export async function runBenchmark(input: unknown): Promise<unknown> {
     .values(values)
     .returning({ id: events.id, scheduledAt: events.scheduledAt });
 
-  await Promise.all(rows.map((row) => addToSchedule(row.id, row.scheduledAt)));
+  await Promise.all(
+    rows.map((row) => addToScheduleWithRetry(row.id, row.scheduledAt))
+  );
 
   const durationMs = Math.round(performance.now() - startedAt);
   broadcast({

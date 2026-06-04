@@ -18,6 +18,40 @@ export type RealtimeMessage =
 
 const clients = new Set<Socket>();
 
+// Periodic heartbeat to clean up stale connections.
+// Every 15 seconds, we ping all clients. If a client didn't respond to the previous ping, we destroy it.
+const HEARTBEAT_INTERVAL_MS = 15000;
+const pingInterval = setInterval(() => {
+  for (const client of clients) {
+    if (client.destroyed) {
+      clients.delete(client);
+      continue;
+    }
+
+    if ((client as any).isAlive === false) {
+      logger.warn("WebSocket client heartbeat timeout, cleaning up connection");
+      clients.delete(client);
+      client.destroy();
+      continue;
+    }
+
+    (client as any).isAlive = false;
+    // Send WebSocket Ping frame:
+    // 0x89: FIN=1, RSV=000, Opcode=1001 (Ping)
+    // 0x00: Mask=0, Payload Length=0
+    client.write(Buffer.from([0x89, 0x00]), (err) => {
+      if (err) {
+        logger.warn({ err }, "Failed to write Ping to WebSocket client");
+        clients.delete(client);
+        client.destroy();
+      }
+    });
+  }
+}, HEARTBEAT_INTERVAL_MS);
+
+// unref the interval so it doesn't block process exit
+pingInterval.unref();
+
 export function handleWebSocketUpgrade(
   req: IncomingMessage,
   socket: Socket
@@ -48,16 +82,45 @@ export function handleWebSocketUpgrade(
     ].join("\r\n")
   );
 
+  (socket as any).isAlive = true;
   clients.add(socket);
   logger.info({ clients: clients.size }, "WebSocket client connected");
 
-  socket.on("close", () => {
-    clients.delete(socket);
-    logger.info({ clients: clients.size }, "WebSocket client disconnected");
+  const cleanup = () => {
+    if (clients.has(socket)) {
+      clients.delete(socket);
+      logger.info({ clients: clients.size }, "WebSocket client disconnected");
+    }
+    socket.destroy();
+  };
+
+  socket.on("close", cleanup);
+  socket.on("end", cleanup);
+  socket.on("error", (err) => {
+    logger.warn({ err }, "WebSocket client socket error");
+    cleanup();
   });
-  socket.on("error", () => clients.delete(socket));
-  socket.on("data", () => {
-    // Dashboards are receive-only; incoming frames are intentionally ignored.
+
+  socket.on("data", (chunk) => {
+    // Check WebSocket frame structure to handle control frames
+    if (Buffer.isBuffer(chunk) && chunk.length > 0) {
+      const firstByte = chunk[0];
+      if (firstByte !== undefined) {
+        const opcode = firstByte & 0x0f;
+
+        if (opcode === 0x08) {
+          // Connection Close frame from browser
+          logger.info("WebSocket client sent close frame");
+          cleanup();
+        } else if (opcode === 0x0a) {
+          // Pong frame response to our Ping
+          (socket as any).isAlive = true;
+        } else {
+          // Any other data activity confirms the connection is alive
+          (socket as any).isAlive = true;
+        }
+      }
+    }
   });
 }
 
@@ -72,6 +135,7 @@ export function broadcast(message: RealtimeMessage): void {
 
     client.write(frame, (err) => {
       if (!err) return;
+      logger.warn({ err }, "Error broadcasting to WebSocket client, removing");
       clients.delete(client);
       client.destroy();
     });
